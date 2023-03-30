@@ -6,6 +6,10 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
+#include "flag.h"
 
 struct {
   struct spinlock lock;
@@ -531,4 +535,83 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+int
+clone(void (*fn) (void*), void* stack, void* args, int flags)
+{
+  struct proc *np, *p;
+  // uint* sp;
+
+  p = myproc();
+
+  if ((np = allocproc()) == 0)
+    return -1;
+
+  if (FLAG_CHECK(CLONE_PARENT, flags)) {
+    cprintf("Copying Parents\n");
+    np->parent = p->parent;
+  }
+  else
+    np->parent = p;
+  if (FLAG_CHECK(CLONE_FILES, flags)){
+    for (int i = 0; i < NOFILE; i++)
+      if (p->ofile[i])
+        np->ofile[i] = filedup(p->ofile[i]);
+  } else {
+    for (int i = 0; i < NOFILE; i++){
+      np->ofile[i] = filealloc();
+      np->ofile[i]->type = p->ofile[i]->type;
+      np->ofile[i]->readable = p->ofile[i]->readable;
+      np->ofile[i]->writable = p->ofile[i]->writable;
+      np->ofile[i]->ip = p->ofile[i]->ip;
+      // np->ofile[i]->off = p->ofile[i]->off;
+      np->ofile[i]->off = 0;
+    }
+  }
+  np->sz = p->sz;
+  if (FLAG_CHECK(CLONE_VM, flags)){
+    np->pgdir = p->pgdir;
+  } else {
+    if((np->pgdir = copyuvm(p->pgdir, p->sz)) == 0){
+      kfree(np->kstack);
+      np->kstack = 0;
+      np->state = UNUSED;
+      return -1;
+    }
+  }
+  if (FLAG_CHECK(CLONE_FS, flags))
+    np->cwd = idup(p->cwd);
+
+  *np->tf = *p->tf;
+  uint user_stack = (uint)stack + PGSIZE - 2 * sizeof(int);
+  uint arg_array[2] = { 0xffffffff, (uint)args };
+
+  if (copyout(np->pgdir, user_stack, arg_array, 2 * sizeof(int)) < 0)
+    return -1;
+  // np->stack = stack;
+  // np->tf->eip = (uint) fn;
+  // np->tf->eax = 0;
+  // cprintf("Address of %d\n", np->stack);
+
+  // sp = (uint *) np->stack;
+  // sp += 1 * sizeof(uint *);
+  // *sp = (uint) args;
+  // sp += 1 * sizeof(uint *);
+  // *sp = 0xffffffff;
+
+  // np->tf->esp = np->tf->ebp = (uint) sp;
+  np->tf->ebp = np->tf->esp = (uint) user_stack;
+  np->tf->eip = (uint) fn;
+  np->tf->eax = 0;
+  np->stack = stack;
+
+
+
+  safestrcpy(np->name, p->name, sizeof(p->name));
+  acquire(&ptable.lock);
+  np->state = RUNNABLE;
+  release(&ptable.lock);
+  cprintf("Done cloning!\n");
+  return np->pid;
 }
