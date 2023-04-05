@@ -314,6 +314,89 @@ wait(void)
     sleep(curproc, &ptable.lock);  //DOC: wait-sleep
   }
 }
+int
+join(int thread_id)
+{
+  struct proc *p;
+  int havekids, tid;
+  struct proc *curproc = myproc();
+  int thread_flag = 0;
+
+  havekids = 0;
+
+for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->tid == thread_id && p->parent == curproc )
+        {
+          thread_flag = 1;
+          havekids = 1;
+          break;
+        }
+}
+
+if(thread_flag == 0){
+  return -1;
+}
+
+  acquire(&ptable.lock);
+  for(;;){
+    // Scan through table looking for exited children.
+      if(p->state == ZOMBIE){
+        // Found one.
+        tid = p->tid;
+        kfree(p->kstack);
+        p->kstack = 0;
+        freevm(p->pgdir);
+        p->pid = 0;
+        p->parent = 0;
+        p->name[0] = 0;
+        p->killed = 0;
+        p->state = UNUSED;
+        release(&ptable.lock);
+        return tid;
+      }
+    }
+
+    // No point waiting if we don't have any children.
+    if(!havekids || curproc->killed){
+      release(&ptable.lock);
+      return -1;
+    }
+
+    // Wait for children to exit.  (See wakeup1 call in proc_exit.)
+    sleep(curproc, &ptable.lock);  //DOC: wait-sleep
+  }
+
+int
+tkill(int tid)
+{
+  struct proc *p;
+
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->tid == tid){
+      p->killed = 1;
+      // Wake process from sleep if necessary.
+      if(p->state == SLEEPING)
+        p->state = RUNNABLE;
+      release(&ptable.lock);
+      return 0;
+    }
+  }
+  release(&ptable.lock);
+  return -1;
+}
+
+int
+gettid(void)
+{
+  return myproc()->tid;
+}
+
+int
+getppid(void)
+{
+  return myproc()->parent->pid;
+}
 
 //PAGEBREAK: 42
 // Per-CPU process scheduler.
@@ -542,7 +625,7 @@ clone(void (*fn) (void*), void* stack, void* args, int flags)
 {
   struct proc *np, *p;
   // uint* sp;
-
+  // int tid;
   p = myproc();
 
   if ((np = allocproc()) == 0)
@@ -569,6 +652,7 @@ clone(void (*fn) (void*), void* stack, void* args, int flags)
       np->ofile[i]->off = 0;
     }
   }
+
   np->sz = p->sz;
   if (FLAG_CHECK(CLONE_VM, flags)){
     np->pgdir = p->pgdir;

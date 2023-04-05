@@ -2,4 +2,5 @@
 #define CLONE_FILES     0x0002
 #define CLONE_VM        0x0004
 #define CLONE_FS        0x0008
+#define CLONE_THREAD    0x0016
 #define FLAG_CHECK(a, b)    ((a) & (b))

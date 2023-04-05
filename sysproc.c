@@ -108,3 +108,32 @@ sys_clone(void)
 
   return clone((void*)fn, (void*)stack, (void*)args, (int)flags);
 }
+
+int
+sys_join(void)
+{
+  int tid;
+  if(argint(0,&tid) < 0)
+    return -1;
+  else
+    return join((int)tid);
+}
+
+int sys_tkill(void)
+{
+  int tid;
+  if(argint(0,&tid) < 0)
+    return -1;
+  else
+    return tkill((int)tid);
+}
+
+int sys_gettid(void)
+{
+  return gettid();
+}
+
+int sys_getppid(void)
+{
+  return getppid();
+}
